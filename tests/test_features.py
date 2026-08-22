@@ -41,6 +41,16 @@ def test_build_features_creates_targets_controls_and_purchase_timing() -> None:
     assert featured["purchase_hour"].tolist() == [14, 9]
     assert featured["promised_delivery_window_days"].tolist() == [4, 5]
     np.testing.assert_allclose(featured["freight_ratio"], [10 / 99, 20 / 199])
+    np.testing.assert_allclose(
+        featured["purchase_month_sin"],
+        [0.0, 0.5],
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        featured["purchase_month_cos"],
+        [1.0, np.sqrt(3) / 2],
+        atol=1e-12,
+    )
 
 
 def test_build_features_does_not_mutate_the_input() -> None:

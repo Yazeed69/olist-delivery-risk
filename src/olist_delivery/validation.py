@@ -105,6 +105,7 @@ CLEAN_ORDER_REQUIRED_COLUMNS = {
     "total_freight_value",
     "total_weight_g",
     "total_volume_cm3",
+    "primary_product_category",
     "distance_km",
     "same_state",
 }

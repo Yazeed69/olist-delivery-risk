@@ -55,117 +55,407 @@
   "adjusted_dissatisfaction_model": {
     "converged": true,
     "n_observations": 93306,
-    "pseudo_r_squared": 0.1633238228708107,
-    "log_likelihood": -29018.102910783735,
+    "pseudo_r_squared": 0.16880576498937883,
+    "log_likelihood": -28827.97491930684,
+    "covariance_type": "seller_clustered",
+    "seller_clusters": 2935,
     "deadline_outcome_estimates": [
       {
         "term": "late_handoff_recovered",
-        "coefficient": 0.44156651781342593,
-        "odds_ratio": 1.5551414681781022,
-        "ci_low": 1.4398627676203406,
-        "ci_high": 1.6796496446978326,
-        "p_value": 2.6853512834508813e-29
+        "coefficient": 0.4199032633041613,
+        "odds_ratio": 1.5218143332075693,
+        "ci_low": 1.3628638543330422,
+        "ci_high": 1.6993031676589312,
+        "p_value": 8.62529057155664e-14
       },
       {
         "term": "on_time_handoff_late_delivery",
-        "coefficient": 2.912180909100018,
-        "odds_ratio": 18.39687676362624,
-        "ci_low": 17.19384497591916,
-        "ci_high": 19.684083178024476,
+        "coefficient": 2.897775374104492,
+        "odds_ratio": 18.13375963325835,
+        "ci_low": 16.48809888480932,
+        "ci_high": 19.943672144018247,
         "p_value": 0.0
       },
       {
         "term": "both_deadlines_missed",
-        "coefficient": 2.9866308059444573,
-        "odds_ratio": 19.818796507524816,
-        "ci_low": 17.87740895772901,
-        "ci_high": 21.971007987534108,
+        "coefficient": 2.974633545681813,
+        "odds_ratio": 19.582445862737043,
+        "ci_low": 17.319043613600105,
+        "ci_high": 22.141649072694662,
         "p_value": 0.0
       }
     ]
   },
+  "dissatisfaction_definition_sensitivity": [
+    {
+      "maximum_review_score": 1,
+      "deadline_outcome": "both_deadlines_met",
+      "orders": 80328,
+      "flagged_orders": 4672,
+      "rate": 0.05816153769544866,
+      "vs_baseline": 1.0
+    },
+    {
+      "maximum_review_score": 1,
+      "deadline_outcome": "late_handoff_recovered",
+      "orders": 6688,
+      "flagged_orders": 648,
+      "rate": 0.09688995215311005,
+      "vs_baseline": 1.6658767287146883
+    },
+    {
+      "maximum_review_score": 1,
+      "deadline_outcome": "on_time_handoff_late_delivery",
+      "orders": 4551,
+      "flagged_orders": 2439,
+      "rate": 0.5359261700725115,
+      "vs_baseline": 9.214442934414535
+    },
+    {
+      "maximum_review_score": 1,
+      "deadline_outcome": "both_deadlines_missed",
+      "orders": 1739,
+      "flagged_orders": 939,
+      "rate": 0.5399654974123059,
+      "vs_baseline": 9.283893081364663
+    },
+    {
+      "maximum_review_score": 2,
+      "deadline_outcome": "both_deadlines_met",
+      "orders": 80328,
+      "flagged_orders": 6616,
+      "rate": 0.08236231451050692,
+      "vs_baseline": 1.0
+    },
+    {
+      "maximum_review_score": 2,
+      "deadline_outcome": "late_handoff_recovered",
+      "orders": 6688,
+      "flagged_orders": 885,
+      "rate": 0.13232655502392343,
+      "vs_baseline": 1.6066395876604778
+    },
+    {
+      "maximum_review_score": 2,
+      "deadline_outcome": "on_time_handoff_late_delivery",
+      "orders": 4551,
+      "flagged_orders": 2824,
+      "rate": 0.6205229619863766,
+      "vs_baseline": 7.534064161191303
+    },
+    {
+      "maximum_review_score": 2,
+      "deadline_outcome": "both_deadlines_missed",
+      "orders": 1739,
+      "flagged_orders": 1097,
+      "rate": 0.6308223116733755,
+      "vs_baseline": 7.659113460111685
+    },
+    {
+      "maximum_review_score": 3,
+      "deadline_outcome": "both_deadlines_met",
+      "orders": 80328,
+      "flagged_orders": 12866,
+      "rate": 0.1601683099292899,
+      "vs_baseline": 1.0
+    },
+    {
+      "maximum_review_score": 3,
+      "deadline_outcome": "late_handoff_recovered",
+      "orders": 6688,
+      "flagged_orders": 1571,
+      "rate": 0.23489832535885166,
+      "vs_baseline": 1.4665717922762194
+    },
+    {
+      "maximum_review_score": 3,
+      "deadline_outcome": "on_time_handoff_late_delivery",
+      "orders": 4551,
+      "flagged_orders": 3332,
+      "rate": 0.7321467809272687,
+      "vs_baseline": 4.57110886198707
+    },
+    {
+      "maximum_review_score": 3,
+      "deadline_outcome": "both_deadlines_missed",
+      "orders": 1739,
+      "flagged_orders": 1277,
+      "rate": 0.7343300747556066,
+      "vs_baseline": 4.584740109200091
+    }
+  ],
   "seller_count_scope_check": [
     {
       "num_unique_sellers": 1,
       "orders": 93306,
       "dissatisfied": 11422,
       "late_deliveries": 6290,
+      "median_promised_window_days": 24.0,
+      "reviews_created_before_delivery": 4793,
+      "median_review_delay_days": 1.0,
       "dissatisfaction_rate": 0.12241442136625726,
-      "late_delivery_rate": 0.0674125994041112
+      "late_delivery_rate": 0.0674125994041112,
+      "review_before_delivery_rate": 0.051368615094420506
     },
     {
       "num_unique_sellers": 2,
       "orders": 1160,
       "dissatisfied": 541,
       "late_deliveries": 12,
+      "median_promised_window_days": 25.0,
+      "reviews_created_before_delivery": 13,
+      "median_review_delay_days": 1.0,
       "dissatisfaction_rate": 0.4663793103448276,
-      "late_delivery_rate": 0.010344827586206896
+      "late_delivery_rate": 0.010344827586206896,
+      "review_before_delivery_rate": 0.011206896551724138
     },
     {
       "num_unique_sellers": 3,
       "orders": 52,
       "dissatisfied": 32,
       "late_deliveries": 0,
+      "median_promised_window_days": 27.5,
+      "reviews_created_before_delivery": 0,
+      "median_review_delay_days": 1.0,
       "dissatisfaction_rate": 0.6153846153846154,
-      "late_delivery_rate": 0.0
+      "late_delivery_rate": 0.0,
+      "review_before_delivery_rate": 0.0
     },
     {
       "num_unique_sellers": 4,
       "orders": 2,
       "dissatisfied": 2,
       "late_deliveries": 0,
+      "median_promised_window_days": 34.0,
+      "reviews_created_before_delivery": 0,
+      "median_review_delay_days": 1.0,
       "dissatisfaction_rate": 1.0,
-      "late_delivery_rate": 0.0
+      "late_delivery_rate": 0.0,
+      "review_before_delivery_rate": 0.0
     },
     {
       "num_unique_sellers": 5,
       "orders": 1,
       "dissatisfied": 1,
       "late_deliveries": 0,
+      "median_promised_window_days": 37.0,
+      "reviews_created_before_delivery": 0,
+      "median_review_delay_days": 1.0,
       "dissatisfaction_rate": 1.0,
-      "late_delivery_rate": 0.0
+      "late_delivery_rate": 0.0,
+      "review_before_delivery_rate": 0.0
     }
   ],
   "late_delivery_modeling": {
     "split": {
-      "strategy": "chronological_holdout",
-      "cutoff": "2018-05-26T16:05:31",
-      "train_orders": 74644,
+      "strategy": "chronological_train_validation_test",
+      "selection_metric": "validation_pr_auc",
+      "validation_cutoff": "2018-03-20T13:32:57",
+      "test_cutoff": "2018-05-26T16:05:31",
+      "train_orders": 59715,
+      "validation_orders": 14929,
+      "development_orders": 74644,
       "test_orders": 18662,
       "train_start": "2016-09-15T12:16:38",
-      "train_end": "2018-05-26T16:01:31",
+      "train_end": "2018-03-20T13:20:53",
+      "validation_start": "2018-03-20T13:32:57",
+      "validation_end": "2018-05-26T16:01:31",
       "test_start": "2018-05-26T16:05:31",
       "test_end": "2018-08-29T15:00:37",
-      "train_late_delivery_rate": 0.07547827018916457,
+      "train_late_delivery_rate": 0.0776856736163443,
+      "validation_late_delivery_rate": 0.06664880434054525,
+      "development_late_delivery_rate": 0.07547827018916457,
       "test_late_delivery_rate": 0.035151645054120675,
       "selected_model": "logistic_regression"
     },
-    "candidate_metrics": [
+    "validation_metrics": [
       {
         "model": "logistic_regression",
-        "train_roc_auc": 0.756495787808273,
-        "roc_auc": 0.6903846245018599,
-        "pr_auc": 0.07275496415246922,
-        "base_rate": 0.035151645054120675,
+        "train_roc_auc": 0.7395611940159241,
+        "roc_auc": 0.7271555134651296,
+        "pr_auc": 0.18683757849902016,
+        "brier_score": 0.05871366015208565,
+        "expected_calibration_error": 0.01140180148356485,
+        "base_rate": 0.06664880434054525,
         "top_fraction": 0.1,
-        "flagged_orders": 1867,
-        "captured_late_deliveries": 142,
-        "capture_rate": 0.21646341463414634,
-        "precision": 0.0760578468130691,
-        "lift": 2.1637066116242307
+        "flagged_orders": 1493,
+        "captured_late_deliveries": 321,
+        "capture_rate": 0.32261306532663314,
+        "precision": 0.21500334896182183,
+        "lift": 3.2259145694985305,
+        "selected_for_holdout": true
       },
       {
         "model": "gradient_boosting",
-        "train_roc_auc": 0.8397312847962797,
-        "roc_auc": 0.5943921470620904,
-        "pr_auc": 0.05222218590920101,
-        "base_rate": 0.035151645054120675,
+        "train_roc_auc": 0.830927184495583,
+        "roc_auc": 0.657466931326649,
+        "pr_auc": 0.14865092932219906,
+        "brier_score": 0.06135402738629687,
+        "expected_calibration_error": 0.02188550663833375,
+        "base_rate": 0.06664880434054525,
         "top_fraction": 0.1,
-        "flagged_orders": 1867,
-        "captured_late_deliveries": 134,
-        "capture_rate": 0.20426829268292682,
-        "precision": 0.07177289769683985,
-        "lift": 2.0418076475890627
+        "flagged_orders": 1493,
+        "captured_late_deliveries": 269,
+        "capture_rate": 0.27035175879396983,
+        "precision": 0.18017414601473544,
+        "lift": 2.703336508395965,
+        "selected_for_holdout": false
+      }
+    ],
+    "holdout_metrics": {
+      "model": "logistic_regression",
+      "roc_auc": 0.7130756549984694,
+      "pr_auc": 0.07905000065410664,
+      "brier_score": 0.03357062912253955,
+      "expected_calibration_error": 0.012436117980758152,
+      "base_rate": 0.035151645054120675,
+      "top_fraction": 0.1,
+      "flagged_orders": 1867,
+      "captured_late_deliveries": 152,
+      "capture_rate": 0.23170731707317074,
+      "precision": 0.08141403320835565,
+      "lift": 2.3160803166681907
+    },
+    "holdout_metric_intervals": [
+      {
+        "metric": "roc_auc",
+        "estimate": 0.7130756549984694,
+        "ci_low": 0.6955750719996089,
+        "ci_high": 0.7303374011774367,
+        "confidence_level": 0.95,
+        "bootstrap_repeats": 500
+      },
+      {
+        "metric": "pr_auc",
+        "estimate": 0.07905000065410664,
+        "ci_low": 0.06921783255570936,
+        "ci_high": 0.09323893524671635,
+        "confidence_level": 0.95,
+        "bootstrap_repeats": 500
+      },
+      {
+        "metric": "brier_score",
+        "estimate": 0.03357062912253955,
+        "ci_low": 0.03129013553959886,
+        "ci_high": 0.03575579190539123,
+        "confidence_level": 0.95,
+        "bootstrap_repeats": 500
+      },
+      {
+        "metric": "capture_rate",
+        "estimate": 0.23170731707317074,
+        "ci_low": 0.2033838021743098,
+        "ci_high": 0.2637030629473734,
+        "confidence_level": 0.95,
+        "bootstrap_repeats": 500
+      },
+      {
+        "metric": "precision",
+        "estimate": 0.08141403320835565,
+        "ci_low": 0.07042046063203,
+        "ci_high": 0.09455008034279591,
+        "confidence_level": 0.95,
+        "bootstrap_repeats": 500
+      },
+      {
+        "metric": "lift",
+        "estimate": 2.3160803166681907,
+        "ci_low": 2.0329665324997155,
+        "ci_high": 2.6359006752672105,
+        "confidence_level": 0.95,
+        "bootstrap_repeats": 500
+      }
+    ],
+    "risk_band_calibration": [
+      {
+        "risk_band": 1,
+        "orders": 1867,
+        "late_deliveries": 10,
+        "mean_predicted_risk": 0.004913394797628204,
+        "late_delivery_rate": 0.005356186395286556,
+        "lift": 0.15237370504395992,
+        "calibration_gap": 0.00044279159765835217
+      },
+      {
+        "risk_band": 2,
+        "orders": 1866,
+        "late_deliveries": 12,
+        "mean_predicted_risk": 0.010535940319771701,
+        "late_delivery_rate": 0.006430868167202572,
+        "lift": 0.18294643557368048,
+        "calibration_gap": -0.004105072152569129
+      },
+      {
+        "risk_band": 3,
+        "orders": 1866,
+        "late_deliveries": 22,
+        "mean_predicted_risk": 0.0156233082273323,
+        "late_delivery_rate": 0.011789924973204717,
+        "lift": 0.33540179855174757,
+        "calibration_gap": -0.003833383254127583
+      },
+      {
+        "risk_band": 4,
+        "orders": 1866,
+        "late_deliveries": 28,
+        "mean_predicted_risk": 0.020505593538893384,
+        "late_delivery_rate": 0.015005359056806002,
+        "lift": 0.42687501633858776,
+        "calibration_gap": -0.005500234482087382
+      },
+      {
+        "risk_band": 5,
+        "orders": 1866,
+        "late_deliveries": 41,
+        "mean_predicted_risk": 0.02622476263384111,
+        "late_delivery_rate": 0.02197213290460879,
+        "lift": 0.625066988210075,
+        "calibration_gap": -0.004252629729232321
+      },
+      {
+        "risk_band": 6,
+        "orders": 1866,
+        "late_deliveries": 64,
+        "mean_predicted_risk": 0.0325950374402442,
+        "late_delivery_rate": 0.03429796355841372,
+        "lift": 0.9757143230596292,
+        "calibration_gap": 0.0017029261181695163
+      },
+      {
+        "risk_band": 7,
+        "orders": 1866,
+        "late_deliveries": 106,
+        "mean_predicted_risk": 0.04008139320721154,
+        "late_delivery_rate": 0.05680600214362272,
+        "lift": 1.6160268475675108,
+        "calibration_gap": 0.01672460893641118
+      },
+      {
+        "risk_band": 8,
+        "orders": 1866,
+        "late_deliveries": 123,
+        "mean_predicted_risk": 0.051211016461024134,
+        "late_delivery_rate": 0.06591639871382636,
+        "lift": 1.8752009646302248,
+        "calibration_gap": 0.014705382252802227
+      },
+      {
+        "risk_band": 9,
+        "orders": 1866,
+        "late_deliveries": 98,
+        "mean_predicted_risk": 0.07084621534004995,
+        "late_delivery_rate": 0.05251875669882101,
+        "lift": 1.4940625571850572,
+        "calibration_gap": -0.018327458641228943
+      },
+      {
+        "risk_band": 10,
+        "orders": 1867,
+        "late_deliveries": 152,
+        "mean_predicted_risk": 0.13616447665600007,
+        "late_delivery_rate": 0.08141403320835565,
+        "lift": 2.3160803166681907,
+        "calibration_gap": -0.05475044344764442
       }
     ]
   }

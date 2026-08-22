@@ -24,12 +24,18 @@ NUMERIC_CONTROLS = [
     "promised_delivery_window_days",
 ]
 
-CATEGORICAL_CONTROLS = ["purchase_month", "purchase_year"]
+CATEGORICAL_CONTROLS = [
+    "purchase_month",
+    "purchase_year",
+    "primary_product_category",
+    "customer_state",
+]
 
 ANALYSIS_COLUMNS = {
     "deadline_outcome",
     "dissatisfied",
     "review_score",
+    "seller_id",
     *NUMERIC_CONTROLS,
     *CATEGORICAL_CONTROLS,
 }
@@ -44,6 +50,8 @@ class AdjustedModelResult:
     log_likelihood: float
     n_observations: int
     converged: bool
+    covariance_type: str
+    n_clusters: int
 
 
 def validate_analysis_input(orders: pd.DataFrame) -> None:
@@ -172,10 +180,19 @@ def build_dissatisfaction_design_matrix(
 def fit_adjusted_dissatisfaction_model(
     orders: pd.DataFrame,
 ) -> AdjustedModelResult:
-    """Fit logistic regression for dissatisfaction with order controls."""
+    """Fit adjusted logistic regression with seller-clustered uncertainty."""
     matrix = build_dissatisfaction_design_matrix(orders)
     target = orders["dissatisfied"].astype(int)
-    fitted = sm.Logit(target, matrix).fit(disp=False)
+    seller_groups = orders["seller_id"].to_numpy()
+    fitted = sm.GLM(
+        target,
+        matrix,
+        family=sm.families.Binomial(),
+    ).fit(
+        maxiter=200,
+        cov_type="cluster",
+        cov_kwds={"groups": seller_groups},
+    )
 
     confidence_interval = fitted.conf_int()
     estimates = pd.DataFrame(
@@ -191,11 +208,88 @@ def fit_adjusted_dissatisfaction_model(
 
     return AdjustedModelResult(
         estimates=estimates,
-        pseudo_r_squared=float(fitted.prsquared),
+        pseudo_r_squared=float(fitted.pseudo_rsquared(kind="mcf")),
         log_likelihood=float(fitted.llf),
         n_observations=int(fitted.nobs),
-        converged=bool(fitted.mle_retvals["converged"]),
+        converged=bool(fitted.converged),
+        covariance_type="seller_clustered",
+        n_clusters=int(orders["seller_id"].nunique()),
     )
+
+
+def dissatisfaction_threshold_sensitivity(
+    orders: pd.DataFrame,
+    thresholds: tuple[int, ...] = (1, 2, 3),
+) -> pd.DataFrame:
+    """Recalculate outcome rates under alternative dissatisfaction cutoffs."""
+    name = "sensitivity_orders"
+    require_non_empty(orders, name)
+    require_columns(orders, {"deadline_outcome", "review_score"}, name)
+
+    rows = []
+    for threshold in thresholds:
+        if threshold < 1 or threshold > 4:
+            raise ValueError("thresholds must be integers from 1 through 4")
+
+        flagged = orders["review_score"].le(threshold)
+        grouped = (
+            orders.assign(flagged=flagged)
+            .groupby("deadline_outcome", observed=True)
+            .agg(
+                orders=("flagged", "size"),
+                flagged_orders=("flagged", "sum"),
+            )
+            .reindex(OUTCOME_ORDER)
+        )
+        grouped["rate"] = grouped["flagged_orders"] / grouped["orders"]
+        baseline = float(grouped.loc[OUTCOME_ORDER[0], "rate"])
+        grouped["vs_baseline"] = grouped["rate"] / baseline
+        grouped = grouped.reset_index()
+        grouped.insert(0, "maximum_review_score", threshold)
+        rows.append(grouped)
+
+    return pd.concat(rows, ignore_index=True)
+
+
+def monthly_delivery_drift(orders: pd.DataFrame) -> pd.DataFrame:
+    """Summarize target prevalence and promised windows by purchase month."""
+    name = "drift_orders"
+    required = {
+        "order_id",
+        "order_purchase_timestamp",
+        "late_delivery",
+        "promised_delivery_window_days",
+    }
+    require_non_empty(orders, name)
+    require_columns(orders, required, name)
+
+    working = orders.copy()
+    working["purchase_month"] = (
+        working["order_purchase_timestamp"].dt.to_period("M").astype(str)
+    )
+    summary = (
+        working.groupby("purchase_month")
+        .agg(
+            orders=("order_id", "size"),
+            late_deliveries=("late_delivery", "sum"),
+            late_delivery_rate=("late_delivery", "mean"),
+            median_promised_window_days=(
+                "promised_delivery_window_days",
+                "median",
+            ),
+            promised_window_q25=(
+                "promised_delivery_window_days",
+                lambda values: values.quantile(0.25),
+            ),
+            promised_window_q75=(
+                "promised_delivery_window_days",
+                lambda values: values.quantile(0.75),
+            ),
+        )
+        .reset_index()
+        .sort_values("purchase_month")
+    )
+    return summary.reset_index(drop=True)
 
 
 def seller_count_summary(orders: pd.DataFrame) -> pd.DataFrame:
@@ -210,20 +304,41 @@ def seller_count_summary(orders: pd.DataFrame) -> pd.DataFrame:
         "num_unique_sellers",
         "dissatisfied",
         "late_delivery",
+        "promised_delivery_window_days",
+        "review_creation_date",
+        "order_delivered_customer_date",
     }
     require_non_empty(orders, name)
     require_columns(orders, required, name)
 
+    working = orders.copy()
+    review_date = working["review_creation_date"].dt.normalize()
+    delivery_date = working["order_delivered_customer_date"].dt.normalize()
+    working["review_created_before_delivery"] = review_date < delivery_date
+    working["review_delay_days"] = (review_date - delivery_date).dt.days
+
     summary = (
-        orders.groupby("num_unique_sellers")
+        working.groupby("num_unique_sellers")
         .agg(
             orders=("order_id", "size"),
             dissatisfied=("dissatisfied", "sum"),
             late_deliveries=("late_delivery", "sum"),
+            median_promised_window_days=(
+                "promised_delivery_window_days",
+                "median",
+            ),
+            reviews_created_before_delivery=(
+                "review_created_before_delivery",
+                "sum",
+            ),
+            median_review_delay_days=("review_delay_days", "median"),
         )
         .reset_index()
         .sort_values("num_unique_sellers")
     )
     summary["dissatisfaction_rate"] = summary["dissatisfied"] / summary["orders"]
     summary["late_delivery_rate"] = summary["late_deliveries"] / summary["orders"]
+    summary["review_before_delivery_rate"] = (
+        summary["reviews_created_before_delivery"] / summary["orders"]
+    )
     return summary.reset_index(drop=True)

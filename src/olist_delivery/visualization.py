@@ -285,6 +285,150 @@ def plot_risk_bands(
     return figure
 
 
+def plot_calibration(risk_bands: pd.DataFrame) -> Figure:
+    """Plot predicted risk against observed frequency on held-out orders."""
+    name = "calibration_bands"
+    required = {
+        "risk_band",
+        "orders",
+        "mean_predicted_risk",
+        "late_delivery_rate",
+    }
+    require_non_empty(risk_bands, name)
+    require_columns(risk_bands, required, name)
+    table = risk_bands.sort_values("risk_band").reset_index(drop=True)
+
+    predicted = 100 * table["mean_predicted_risk"].to_numpy()
+    observed = 100 * table["late_delivery_rate"].to_numpy()
+    limit = max(predicted.max(), observed.max()) * 1.15
+
+    figure, axis = plt.subplots(figsize=(7.2, 6.2))
+    axis.plot(
+        [0, limit],
+        [0, limit],
+        color=TEXT_GREY,
+        linestyle="--",
+        linewidth=1.2,
+        label="perfect calibration",
+    )
+    axis.scatter(
+        predicted,
+        observed,
+        s=70,
+        color=PRIMARY_BLUE,
+        zorder=3,
+        label="held-out risk bands",
+    )
+    for band, x_value, y_value in zip(
+        table["risk_band"],
+        predicted,
+        observed,
+    ):
+        axis.annotate(
+            str(int(band)),
+            (x_value, y_value),
+            xytext=(5, 5),
+            textcoords="offset points",
+            fontsize=8,
+        )
+
+    axis.set_title(
+        "Predicted probabilities overstate observed late-delivery risk",
+        loc="left",
+        pad=24,
+        fontsize=14,
+        weight="bold",
+    )
+    axis.set_xlabel("Mean predicted late-delivery risk (%)")
+    axis.set_ylabel("Observed late-delivery rate (%)")
+    axis.set_xlim(0, limit)
+    axis.set_ylim(0, limit)
+    axis.set_aspect("equal", adjustable="box")
+    axis.legend(frameon=False, loc="upper left")
+    _clean_axes(axis, grid_axis="both")
+
+    figure.tight_layout()
+    return figure
+
+
+def plot_delivery_drift(
+    monthly_drift: pd.DataFrame,
+    test_start: str | None = None,
+    minimum_orders: int = 100,
+) -> Figure:
+    """Plot monthly promised-window and late-delivery target drift."""
+    name = "monthly_delivery_drift"
+    required = {
+        "purchase_month",
+        "orders",
+        "late_delivery_rate",
+        "median_promised_window_days",
+    }
+    require_non_empty(monthly_drift, name)
+    require_columns(monthly_drift, required, name)
+
+    table = monthly_drift.loc[monthly_drift["orders"] >= minimum_orders].copy()
+    require_non_empty(table, f"{name} after minimum_orders filter")
+    table["month"] = pd.to_datetime(table["purchase_month"] + "-01")
+
+    figure, (window_axis, late_axis) = plt.subplots(
+        2,
+        1,
+        figsize=(10.5, 7.2),
+        sharex=True,
+        gridspec_kw={"hspace": 0.18},
+        layout="constrained",
+    )
+
+    window_axis.plot(
+        table["month"],
+        table["median_promised_window_days"],
+        marker="o",
+        color=PRIMARY_BLUE,
+        linewidth=2,
+    )
+    late_axis.plot(
+        table["month"],
+        100 * table["late_delivery_rate"],
+        marker="o",
+        color=REFERENCE_ORANGE,
+        linewidth=2,
+    )
+
+    if test_start:
+        cutoff = pd.Timestamp(test_start).normalize()
+        for axis in (window_axis, late_axis):
+            axis.axvline(
+                cutoff,
+                color=TEXT_GREY,
+                linestyle="--",
+                linewidth=1.2,
+            )
+        window_axis.text(
+            cutoff,
+            window_axis.get_ylim()[1],
+            " final holdout begins",
+            color=TEXT_GREY,
+            fontsize=9,
+            va="top",
+        )
+
+    window_axis.set_title(
+        "The late-delivery target changes substantially over time",
+        loc="left",
+        pad=22,
+        fontsize=14,
+        weight="bold",
+    )
+    window_axis.set_ylabel("Median promised\nwindow (days)")
+    late_axis.set_ylabel("Delivered late (%)")
+    late_axis.set_xlabel("Purchase month")
+    for axis in (window_axis, late_axis):
+        _clean_axes(axis)
+    late_axis.tick_params(axis="x", labelrotation=45)
+    return figure
+
+
 def save_figure(
     figure: Figure,
     path: Path,

@@ -1,0 +1,41 @@
+feature,coefficient,odds_ratio,absolute_coefficient,interpretation
+categorical__customer_state_AL,0.9960566376231764,2.7075837652001753,0.9960566376231764,relative to the encoded categorical reference
+numeric__promised_delivery_window_days,-0.9055352053748115,0.4043254300408985,0.9055352053748115,per one training-standard-deviation increase
+categorical__customer_state_PR,-0.8443661979978894,0.42982969882028954,0.8443661979978894,relative to the encoded categorical reference
+categorical__customer_state_SP,-0.8298888753840042,0.43609774482344965,0.8298888753840042,relative to the encoded categorical reference
+categorical__customer_state_DF,-0.7961642223502811,0.4510557998768882,0.7961642223502811,relative to the encoded categorical reference
+categorical__customer_state_MG,-0.7653265773499695,0.4651819882641592,0.7653265773499695,relative to the encoded categorical reference
+numeric__purchase_month_cos,0.5629663009691064,1.7558732314838883,0.5629663009691064,per one training-standard-deviation increase
+categorical__customer_state_PA,0.5107397153156825,1.666523492066195,0.5107397153156825,relative to the encoded categorical reference
+categorical__customer_state_SE,0.5082046275436426,1.662304059315568,0.5082046275436426,relative to the encoded categorical reference
+numeric__same_state,-0.4013028804290754,0.6694472678527108,0.4013028804290754,per one training-standard-deviation increase
+categorical__customer_state_RJ,0.39157055508741845,1.4793022961288829,0.39157055508741845,relative to the encoded categorical reference
+categorical__customer_state_GO,-0.35255078215121693,0.7028928744921416,0.35255078215121693,relative to the encoded categorical reference
+numeric__distance_km,0.31044352077637827,1.364029955617299,0.31044352077637827,per one training-standard-deviation increase
+categorical__customer_state_MT,-0.29394946651745246,0.7453141538114594,0.29394946651745246,relative to the encoded categorical reference
+categorical__customer_state_BA,0.29189296282482186,1.3389596915057622,0.29189296282482186,relative to the encoded categorical reference
+categorical__customer_state_RO,-0.27332150641164377,0.7608481307493409,0.27332150641164377,relative to the encoded categorical reference
+categorical__customer_state_RS,-0.26396354362943564,0.7680015376950019,0.26396354362943564,relative to the encoded categorical reference
+categorical__customer_state_MS,-0.2234373422349902,0.7997650017852369,0.2234373422349902,relative to the encoded categorical reference
+categorical__customer_state_MA,0.21516707449756037,1.2400690635751883,0.21516707449756037,relative to the encoded categorical reference
+categorical__customer_state_PE,-0.20743769870094075,0.8126638702107852,0.20743769870094075,relative to the encoded categorical reference
+categorical__customer_state_CE,0.20479554362738756,1.227274115296108,0.20479554362738756,relative to the encoded categorical reference
+categorical__customer_state_PI,-0.1925557972596933,0.824848292645173,0.1925557972596933,relative to the encoded categorical reference
+numeric__purchase_month_sin,0.15397198965745798,1.1664582134267267,0.15397198965745798,per one training-standard-deviation increase
+categorical__customer_state_RN,-0.12767495326575515,0.8801394190978069,0.12767495326575515,relative to the encoded categorical reference
+categorical__customer_state_RR,0.12288254183253278,1.130751597136561,0.12288254183253278,relative to the encoded categorical reference
+numeric__log_order_price,0.12261654572550147,1.1304508616127158,0.12261654572550147,per one training-standard-deviation increase
+categorical__customer_state_AM,-0.11892070146417721,0.8878782054120985,0.11892070146417721,relative to the encoded categorical reference
+numeric__item_count,-0.10082194133291343,0.904094000327234,0.10082194133291343,per one training-standard-deviation increase
+categorical__customer_state_TO,-0.09450196450168871,0.9098259472696645,0.09450196450168871,relative to the encoded categorical reference
+categorical__customer_state_SC,-0.08064280823827424,0.9225231502703939,0.08064280823827424,relative to the encoded categorical reference
+numeric__total_weight_g,0.0764590755097261,1.0794580131642466,0.0764590755097261,per one training-standard-deviation increase
+numeric__freight_ratio,0.05908568361171212,1.0608661356880484,0.05908568361171212,per one training-standard-deviation increase
+numeric__purchase_day_sin,-0.036505442442192775,0.9641528465359125,0.036505442442192775,per one training-standard-deviation increase
+categorical__customer_state_PB,0.031599751513146736,1.0321043244289967,0.031599751513146736,relative to the encoded categorical reference
+numeric__total_freight_value,0.026527842472968743,1.0268828378213184,0.026527842472968743,per one training-standard-deviation increase
+numeric__purchase_hour_cos,0.026290693849105807,1.0266393428428513,0.026290693849105807,per one training-standard-deviation increase
+numeric__purchase_day_cos,-0.025505315547595612,0.9748171972647602,0.025505315547595612,per one training-standard-deviation increase
+categorical__customer_state_AP,-0.02038644768209223,0.9798199509843611,0.02038644768209223,relative to the encoded categorical reference
+numeric__purchase_hour_sin,-0.020248996957764335,0.9799546372024819,0.020248996957764335,per one training-standard-deviation increase
+categorical__customer_state_ES,-0.005333148363874831,0.9946810476242121,0.005333148363874831,relative to the encoded categorical reference

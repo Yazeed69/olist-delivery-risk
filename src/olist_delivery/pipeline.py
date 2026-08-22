@@ -20,8 +20,10 @@ import pandas as pd
 from .analysis import (
     AdjustedModelResult,
     chi_square_association,
+    dissatisfaction_threshold_sensitivity,
     dissatisfaction_rates_by_outcome,
     fit_adjusted_dissatisfaction_model,
+    monthly_delivery_drift,
     review_score_distribution,
     seller_count_summary,
 )
@@ -51,6 +53,8 @@ from .validation import (
 )
 from .visualization import (
     plot_dissatisfaction_rates,
+    plot_calibration,
+    plot_delivery_drift,
     plot_review_score_distribution,
     plot_risk_bands,
     save_figure,
@@ -60,6 +64,13 @@ from .visualization import (
 FEATURES_FILENAME = "olist_delivery_features.csv"
 METRICS_FILENAME = "metrics.json"
 POPULATION_FLOW_FILENAME = "population_flow.csv"
+DELIVERY_DRIFT_FILENAME = "delivery_drift.csv"
+SELLER_DIAGNOSTIC_FILENAME = "seller_count_diagnostic.csv"
+SENSITIVITY_FILENAME = "dissatisfaction_sensitivity.csv"
+MODEL_IMPORTANCE_FILENAME = "model_feature_importance.csv"
+LOGISTIC_COEFFICIENTS_FILENAME = "logistic_coefficients.csv"
+VALIDATION_METRICS_FILENAME = "model_validation_metrics.csv"
+METRIC_INTERVALS_FILENAME = "model_holdout_intervals.csv"
 
 
 @dataclass(frozen=True)
@@ -71,6 +82,8 @@ class PipelineResult:
     dissatisfaction_rates: pd.DataFrame
     review_distribution: pd.DataFrame
     seller_summary: pd.DataFrame
+    sensitivity: pd.DataFrame
+    delivery_drift: pd.DataFrame
     association_metrics: dict[str, float | int]
     adjusted_model: AdjustedModelResult
     modeling: ModelingResult
@@ -175,20 +188,31 @@ def run_analysis(features: pd.DataFrame) -> tuple[
     pd.DataFrame,
     dict[str, float | int],
     AdjustedModelResult,
+    pd.DataFrame,
+    pd.DataFrame,
 ]:
     """Run the descriptive and adjusted dissatisfaction analyses."""
     rates = dissatisfaction_rates_by_outcome(features)
     distribution = review_score_distribution(features)
     association = chi_square_association(features)
     adjusted_model = fit_adjusted_dissatisfaction_model(features)
-    return rates, distribution, association, adjusted_model
+    sensitivity = dissatisfaction_threshold_sensitivity(features)
+    drift = monthly_delivery_drift(features)
+    return rates, distribution, association, adjusted_model, sensitivity, drift
 
 
 def execute_pipeline() -> PipelineResult:
     """Execute all computational stages without writing project artifacts."""
     raw_tables = load_raw_tables()
     features, population_flow, seller_summary = build_analysis_population(raw_tables)
-    rates, distribution, association, adjusted_model = run_analysis(features)
+    (
+        rates,
+        distribution,
+        association,
+        adjusted_model,
+        sensitivity,
+        drift,
+    ) = run_analysis(features)
     modeling = run_modeling(features)
 
     return PipelineResult(
@@ -197,6 +221,8 @@ def execute_pipeline() -> PipelineResult:
         dissatisfaction_rates=rates,
         review_distribution=distribution,
         seller_summary=seller_summary,
+        sensitivity=sensitivity,
+        delivery_drift=drift,
         association_metrics=association,
         adjusted_model=adjusted_model,
         modeling=modeling,
@@ -252,14 +278,28 @@ def build_metrics(result: PipelineResult) -> dict[str, Any]:
             "n_observations": result.adjusted_model.n_observations,
             "pseudo_r_squared": result.adjusted_model.pseudo_r_squared,
             "log_likelihood": result.adjusted_model.log_likelihood,
+            "covariance_type": result.adjusted_model.covariance_type,
+            "seller_clusters": result.adjusted_model.n_clusters,
             "deadline_outcome_estimates": outcome_estimates,
         },
+        "dissatisfaction_definition_sensitivity": result.sensitivity.to_dict(
+            orient="records"
+        ),
         "seller_count_scope_check": result.seller_summary.to_dict(
             orient="records"
         ),
         "late_delivery_modeling": {
             "split": result.modeling.split_metadata,
-            "candidate_metrics": result.modeling.metrics.to_dict(orient="records"),
+            "validation_metrics": result.modeling.validation_metrics.to_dict(
+                orient="records"
+            ),
+            "holdout_metrics": result.modeling.holdout_metrics,
+            "holdout_metric_intervals": (
+                result.modeling.metric_intervals.to_dict(orient="records")
+            ),
+            "risk_band_calibration": result.modeling.risk_bands.to_dict(
+                orient="records"
+            ),
         },
     }
 
@@ -283,6 +323,34 @@ def write_outputs(
         outputs_dir / POPULATION_FLOW_FILENAME,
         index=False,
         float_format="%.2f",
+    )
+    result.delivery_drift.to_csv(
+        outputs_dir / DELIVERY_DRIFT_FILENAME,
+        index=False,
+    )
+    result.seller_summary.to_csv(
+        outputs_dir / SELLER_DIAGNOSTIC_FILENAME,
+        index=False,
+    )
+    result.sensitivity.to_csv(
+        outputs_dir / SENSITIVITY_FILENAME,
+        index=False,
+    )
+    result.modeling.permutation_importance.to_csv(
+        outputs_dir / MODEL_IMPORTANCE_FILENAME,
+        index=False,
+    )
+    result.modeling.logistic_coefficients.to_csv(
+        outputs_dir / LOGISTIC_COEFFICIENTS_FILENAME,
+        index=False,
+    )
+    result.modeling.validation_metrics.to_csv(
+        outputs_dir / VALIDATION_METRICS_FILENAME,
+        index=False,
+    )
+    result.modeling.metric_intervals.to_csv(
+        outputs_dir / METRIC_INTERVALS_FILENAME,
+        index=False,
     )
 
     metrics = build_metrics(result)
@@ -312,6 +380,17 @@ def write_outputs(
         plot_risk_bands(result.modeling.risk_bands, evaluation_period),
         figures_dir / "late_delivery_risk_bands.png",
     )
+    save_figure(
+        plot_calibration(result.modeling.risk_bands),
+        figures_dir / "late_delivery_calibration.png",
+    )
+    save_figure(
+        plot_delivery_drift(
+            result.delivery_drift,
+            test_start=split["test_start"],
+        ),
+        figures_dir / "delivery_target_drift.png",
+    )
 
 
 def main() -> None:
@@ -324,9 +403,7 @@ def main() -> None:
     write_outputs(result)
 
     selected_model = result.modeling.split_metadata["selected_model"]
-    selected_metrics = result.modeling.metrics.loc[
-        result.modeling.metrics["model"] == selected_model
-    ].iloc[0]
+    selected_metrics = result.modeling.holdout_metrics
 
     print(
         f"Done: {len(result.features):,} analysis orders in "

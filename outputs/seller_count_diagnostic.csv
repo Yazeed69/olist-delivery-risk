@@ -1,0 +1,6 @@
+num_unique_sellers,orders,dissatisfied,late_deliveries,median_promised_window_days,reviews_created_before_delivery,median_review_delay_days,dissatisfaction_rate,late_delivery_rate,review_before_delivery_rate
+1,93306,11422,6290,24.0,4793,1.0,0.12241442136625726,0.0674125994041112,0.051368615094420506
+2,1160,541,12,25.0,13,1.0,0.4663793103448276,0.010344827586206896,0.011206896551724138
+3,52,32,0,27.5,0,1.0,0.6153846153846154,0.0,0.0
+4,2,2,0,34.0,0,1.0,1.0,0.0,0.0
+5,1,1,0,37.0,0,1.0,1.0,0.0,0.0

@@ -15,7 +15,7 @@ from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.impute import SimpleImputer
 from sklearn.inspection import permutation_importance
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import average_precision_score, roc_auc_score
+from sklearn.metrics import average_precision_score, brier_score_loss, roc_auc_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
@@ -31,24 +31,21 @@ from .validation import (
 NUMERIC_FEATURES = [
     "item_count",
     "log_order_price",
-    "total_price",
     "total_freight_value",
     "freight_ratio",
     "total_weight_g",
-    "total_volume_cm3",
     "promised_delivery_window_days",
     "distance_km",
     "same_state",
-    "purchase_hour",
-    "purchase_day_of_week",
-    "purchase_is_weekend",
+    "purchase_hour_sin",
+    "purchase_hour_cos",
+    "purchase_day_sin",
+    "purchase_day_cos",
+    "purchase_month_sin",
+    "purchase_month_cos",
 ]
 
-CATEGORICAL_FEATURES = [
-    "purchase_month",
-    "purchase_year",
-    "customer_state",
-]
+CATEGORICAL_FEATURES = ["customer_state"]
 
 MODEL_FEATURES = [*NUMERIC_FEATURES, *CATEGORICAL_FEATURES]
 
@@ -69,7 +66,9 @@ TIME_COLUMN = "order_purchase_timestamp"
 ORDER_ID_COLUMN = "order_id"
 
 DEFAULT_TEST_FRACTION = 0.20
+DEFAULT_VALIDATION_FRACTION = 0.20
 DEFAULT_RISK_BANDS = 10
+DEFAULT_BOOTSTRAP_REPEATS = 500
 RANDOM_STATE = 42
 
 
@@ -93,7 +92,9 @@ class ModelingResult:
     """Fitted candidates and their held-out evaluation artifacts."""
 
     models: dict[str, Pipeline]
-    metrics: pd.DataFrame
+    validation_metrics: pd.DataFrame
+    holdout_metrics: dict[str, float | int | str]
+    metric_intervals: pd.DataFrame
     risk_scores: pd.DataFrame
     risk_bands: pd.DataFrame
     permutation_importance: pd.DataFrame
@@ -168,6 +169,28 @@ def temporal_train_test_split(
         test_timestamps=test[TIME_COLUMN].copy(),
         cutoff=pd.Timestamp(cutoff),
     )
+
+
+def temporal_train_validation_test_split(
+    orders: pd.DataFrame,
+    validation_fraction: float = DEFAULT_VALIDATION_FRACTION,
+    test_fraction: float = DEFAULT_TEST_FRACTION,
+) -> tuple[TemporalSplit, TemporalSplit]:
+    """Create chronological model-selection and untouched holdout splits.
+
+    The outer split reserves the latest orders for one final evaluation. The
+    earlier development period is split again so candidate selection uses only
+    an intermediate validation period.
+    """
+    holdout = temporal_train_test_split(orders, test_fraction=test_fraction)
+    development_orders = orders.loc[
+        orders[TIME_COLUMN] < holdout.cutoff
+    ].copy()
+    selection = temporal_train_test_split(
+        development_orders,
+        test_fraction=validation_fraction,
+    )
+    return selection, holdout
 
 
 def build_preprocessor(scale_numeric: bool) -> ColumnTransformer:
@@ -274,13 +297,67 @@ def evaluate_probabilities(
 ) -> dict[str, float | int]:
     """Calculate ranking and operational metrics for predicted probabilities."""
     operational = top_fraction_metrics(target, probabilities, top_fraction)
+    calibration = probability_calibration_table(target, probabilities)
+    expected_calibration_error = np.average(
+        calibration["absolute_calibration_gap"],
+        weights=calibration["orders"],
+    )
     return {
         "roc_auc": float(roc_auc_score(target, probabilities)),
         "pr_auc": float(average_precision_score(target, probabilities)),
+        "brier_score": float(brier_score_loss(target, probabilities)),
+        "expected_calibration_error": float(expected_calibration_error),
         "base_rate": float(np.asarray(target).mean()),
         "top_fraction": float(top_fraction),
         **operational,
     }
+
+
+def probability_calibration_table(
+    target: pd.Series | np.ndarray,
+    probabilities: np.ndarray,
+    n_bands: int = DEFAULT_RISK_BANDS,
+) -> pd.DataFrame:
+    """Compare mean predicted risk with observed outcomes in equal-size bands."""
+    if n_bands < 2:
+        raise ValueError("n_bands must be at least 2")
+
+    target_array = np.asarray(target, dtype=int)
+    probability_array = np.asarray(probabilities, dtype=float)
+    if len(target_array) != len(probability_array):
+        raise ValueError("target and probabilities must have the same length")
+
+    table = pd.DataFrame(
+        {
+            TARGET_COLUMN: target_array,
+            "risk_score": probability_array,
+        }
+    )
+    score_rank = table["risk_score"].rank(method="first")
+    table["risk_band"] = pd.qcut(
+        score_rank,
+        q=n_bands,
+        labels=range(1, n_bands + 1),
+    ).astype(int)
+
+    calibration = (
+        table.groupby("risk_band")
+        .agg(
+            orders=(TARGET_COLUMN, "size"),
+            late_deliveries=(TARGET_COLUMN, "sum"),
+            mean_predicted_risk=("risk_score", "mean"),
+            observed_late_delivery_rate=(TARGET_COLUMN, "mean"),
+        )
+        .reset_index()
+    )
+    calibration["calibration_gap"] = (
+        calibration["observed_late_delivery_rate"]
+        - calibration["mean_predicted_risk"]
+    )
+    calibration["absolute_calibration_gap"] = calibration[
+        "calibration_gap"
+    ].abs()
+    return calibration
 
 
 def fit_and_evaluate_candidates(
@@ -310,6 +387,8 @@ def fit_and_evaluate_candidates(
         "train_roc_auc",
         "roc_auc",
         "pr_auc",
+        "brier_score",
+        "expected_calibration_error",
         "base_rate",
         "top_fraction",
         "flagged_orders",
@@ -319,6 +398,21 @@ def fit_and_evaluate_candidates(
         "lift",
     ]
     return models, pd.DataFrame(rows)[columns]
+
+
+def select_best_model(validation_metrics: pd.DataFrame) -> str:
+    """Select a candidate using validation PR-AUC only."""
+    require_non_empty(validation_metrics, "validation_metrics")
+    require_columns(
+        validation_metrics,
+        {"model", "pr_auc"},
+        "validation_metrics",
+    )
+    return str(
+        validation_metrics.sort_values("pr_auc", ascending=False).iloc[0][
+            "model"
+        ]
+    )
 
 
 def score_held_out_orders(
@@ -351,7 +445,7 @@ def score_held_out_orders(
 
 def summarize_risk_bands(scored_orders: pd.DataFrame) -> pd.DataFrame:
     """Summarize observed late-delivery rates within held-out risk bands."""
-    required = {"risk_band", TARGET_COLUMN}
+    required = {"risk_band", "risk_score", TARGET_COLUMN}
     require_non_empty(scored_orders, "scored_orders")
     require_columns(scored_orders, required, "scored_orders")
 
@@ -360,6 +454,7 @@ def summarize_risk_bands(scored_orders: pd.DataFrame) -> pd.DataFrame:
         .agg(
             orders=(TARGET_COLUMN, "size"),
             late_deliveries=(TARGET_COLUMN, "sum"),
+            mean_predicted_risk=("risk_score", "mean"),
         )
         .reset_index()
     )
@@ -368,7 +463,97 @@ def summarize_risk_bands(scored_orders: pd.DataFrame) -> pd.DataFrame:
     )
     overall_rate = scored_orders[TARGET_COLUMN].mean()
     summary["lift"] = summary["late_delivery_rate"] / overall_rate
+    summary["calibration_gap"] = (
+        summary["late_delivery_rate"] - summary["mean_predicted_risk"]
+    )
     return summary
+
+
+def bootstrap_metric_intervals(
+    target: pd.Series | np.ndarray,
+    probabilities: np.ndarray,
+    top_fraction: float = 0.10,
+    repeats: int = DEFAULT_BOOTSTRAP_REPEATS,
+    confidence_level: float = 0.95,
+) -> pd.DataFrame:
+    """Estimate uncertainty for held-out model metrics by pairs bootstrap."""
+    if repeats < 1:
+        raise ValueError("repeats must be at least 1")
+    if not 0 < confidence_level < 1:
+        raise ValueError("confidence_level must be between 0 and 1")
+
+    target_array = np.asarray(target, dtype=int)
+    probability_array = np.asarray(probabilities, dtype=float)
+    if len(target_array) != len(probability_array):
+        raise ValueError("target and probabilities must have the same length")
+
+    metric_names = [
+        "roc_auc",
+        "pr_auc",
+        "brier_score",
+        "capture_rate",
+        "precision",
+        "lift",
+    ]
+    point_operational = top_fraction_metrics(
+        target_array,
+        probability_array,
+        top_fraction,
+    )
+    point_estimates = {
+        "roc_auc": float(roc_auc_score(target_array, probability_array)),
+        "pr_auc": float(
+            average_precision_score(target_array, probability_array)
+        ),
+        "brier_score": float(
+            brier_score_loss(target_array, probability_array)
+        ),
+        **point_operational,
+    }
+
+    rng = np.random.default_rng(RANDOM_STATE)
+    samples = {metric: [] for metric in metric_names}
+    for _ in range(repeats):
+        indices = rng.integers(0, len(target_array), size=len(target_array))
+        sampled_target = target_array[indices]
+        if np.unique(sampled_target).size < 2:
+            continue
+        sampled_probability = probability_array[indices]
+        operational = top_fraction_metrics(
+            sampled_target,
+            sampled_probability,
+            top_fraction,
+        )
+        values = {
+            "roc_auc": roc_auc_score(sampled_target, sampled_probability),
+            "pr_auc": average_precision_score(
+                sampled_target,
+                sampled_probability,
+            ),
+            "brier_score": brier_score_loss(
+                sampled_target,
+                sampled_probability,
+            ),
+            **operational,
+        }
+        for metric in metric_names:
+            samples[metric].append(float(values[metric]))
+
+    alpha = 1 - confidence_level
+    rows = []
+    for metric in metric_names:
+        values = np.asarray(samples[metric])
+        rows.append(
+            {
+                "metric": metric,
+                "estimate": float(point_estimates[metric]),
+                "ci_low": float(np.quantile(values, alpha / 2)),
+                "ci_high": float(np.quantile(values, 1 - alpha / 2)),
+                "confidence_level": confidence_level,
+                "bootstrap_repeats": int(len(values)),
+            }
+        )
+    return pd.DataFrame(rows)
 
 
 def permutation_importance_table(
@@ -407,6 +592,11 @@ def logistic_coefficient_table(model: Pipeline) -> pd.DataFrame:
 
     feature_names = preprocessor.get_feature_names_out()
     coefficients = classifier.coef_[0]
+    interpretation = np.where(
+        np.char.startswith(feature_names.astype(str), "numeric__"),
+        "per one training-standard-deviation increase",
+        "relative to the encoded categorical reference",
+    )
     return (
         pd.DataFrame(
             {
@@ -414,6 +604,7 @@ def logistic_coefficient_table(model: Pipeline) -> pd.DataFrame:
                 "coefficient": coefficients,
                 "odds_ratio": np.exp(coefficients),
                 "absolute_coefficient": np.abs(coefficients),
+                "interpretation": interpretation,
             }
         )
         .sort_values("absolute_coefficient", ascending=False)
@@ -424,36 +615,75 @@ def logistic_coefficient_table(model: Pipeline) -> pd.DataFrame:
 def run_modeling(
     orders: pd.DataFrame,
     test_fraction: float = DEFAULT_TEST_FRACTION,
+    validation_fraction: float = DEFAULT_VALIDATION_FRACTION,
+    bootstrap_repeats: int = DEFAULT_BOOTSTRAP_REPEATS,
 ) -> ModelingResult:
-    """Run chronological candidate evaluation and held-out risk analysis."""
-    split = temporal_train_test_split(orders, test_fraction=test_fraction)
-    models, metrics = fit_and_evaluate_candidates(split)
+    """Select on temporal validation, then evaluate once on future orders."""
+    selection_split, holdout_split = temporal_train_validation_test_split(
+        orders,
+        validation_fraction=validation_fraction,
+        test_fraction=test_fraction,
+    )
+    _, validation_metrics = fit_and_evaluate_candidates(selection_split)
+    best_model_name = select_best_model(validation_metrics)
+    validation_metrics["selected_for_holdout"] = (
+        validation_metrics["model"] == best_model_name
+    )
 
-    best_model_name = metrics.sort_values("pr_auc", ascending=False).iloc[0]["model"]
-    best_model = models[str(best_model_name)]
-    risk_scores = score_held_out_orders(split, best_model)
+    models = build_candidate_models()
+    for model in models.values():
+        model.fit(holdout_split.X_train, holdout_split.y_train)
+
+    best_model = models[best_model_name]
+    holdout_probability = best_model.predict_proba(holdout_split.X_test)[:, 1]
+    holdout_metrics: dict[str, float | int | str] = {
+        "model": best_model_name,
+        **evaluate_probabilities(
+            holdout_split.y_test,
+            holdout_probability,
+        ),
+    }
+
+    risk_scores = score_held_out_orders(holdout_split, best_model)
     risk_bands = summarize_risk_bands(risk_scores)
+    metric_intervals = bootstrap_metric_intervals(
+        holdout_split.y_test,
+        holdout_probability,
+        repeats=bootstrap_repeats,
+    )
 
-    importance = permutation_importance_table(best_model, split)
+    importance = permutation_importance_table(best_model, holdout_split)
     coefficients = logistic_coefficient_table(models["logistic_regression"])
 
     split_metadata = {
-        "strategy": "chronological_holdout",
-        "cutoff": split.cutoff.isoformat(),
-        "train_orders": int(len(split.y_train)),
-        "test_orders": int(len(split.y_test)),
-        "train_start": split.train_timestamps.min().isoformat(),
-        "train_end": split.train_timestamps.max().isoformat(),
-        "test_start": split.test_timestamps.min().isoformat(),
-        "test_end": split.test_timestamps.max().isoformat(),
-        "train_late_delivery_rate": float(split.y_train.mean()),
-        "test_late_delivery_rate": float(split.y_test.mean()),
-        "selected_model": str(best_model_name),
+        "strategy": "chronological_train_validation_test",
+        "selection_metric": "validation_pr_auc",
+        "validation_cutoff": selection_split.cutoff.isoformat(),
+        "test_cutoff": holdout_split.cutoff.isoformat(),
+        "train_orders": int(len(selection_split.y_train)),
+        "validation_orders": int(len(selection_split.y_test)),
+        "development_orders": int(len(holdout_split.y_train)),
+        "test_orders": int(len(holdout_split.y_test)),
+        "train_start": selection_split.train_timestamps.min().isoformat(),
+        "train_end": selection_split.train_timestamps.max().isoformat(),
+        "validation_start": (
+            selection_split.test_timestamps.min().isoformat()
+        ),
+        "validation_end": selection_split.test_timestamps.max().isoformat(),
+        "test_start": holdout_split.test_timestamps.min().isoformat(),
+        "test_end": holdout_split.test_timestamps.max().isoformat(),
+        "train_late_delivery_rate": float(selection_split.y_train.mean()),
+        "validation_late_delivery_rate": float(selection_split.y_test.mean()),
+        "development_late_delivery_rate": float(holdout_split.y_train.mean()),
+        "test_late_delivery_rate": float(holdout_split.y_test.mean()),
+        "selected_model": best_model_name,
     }
 
     return ModelingResult(
         models=models,
-        metrics=metrics,
+        validation_metrics=validation_metrics,
+        holdout_metrics=holdout_metrics,
+        metric_intervals=metric_intervals,
         risk_scores=risk_scores,
         risk_bands=risk_bands,
         permutation_importance=importance,

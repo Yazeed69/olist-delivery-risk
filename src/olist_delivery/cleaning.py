@@ -195,6 +195,12 @@ def attach_product_details(
 
 def aggregate_order_items(order_items: pd.DataFrame) -> pd.DataFrame:
     """Aggregate item-level records to one row per order."""
+    def most_common_category(categories: pd.Series) -> str:
+        """Return a deterministic modal category for an order."""
+        counts = categories.value_counts()
+        modes = counts.loc[counts == counts.max()].index
+        return str(sorted(modes)[0])
+
     return (
         order_items.groupby("order_id")
         .agg(
@@ -205,6 +211,10 @@ def aggregate_order_items(order_items: pd.DataFrame) -> pd.DataFrame:
             total_freight_value=("freight_value", "sum"),
             total_weight_g=("product_weight_g", "sum"),
             total_volume_cm3=("product_volume_cm3", "sum"),
+            primary_product_category=(
+                "product_category_name",
+                most_common_category,
+            ),
             shipping_limit_date=("shipping_limit_date", "max"),
         )
         .reset_index()

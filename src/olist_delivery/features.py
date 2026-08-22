@@ -96,6 +96,25 @@ def add_purchase_timing(orders: pd.DataFrame) -> pd.DataFrame:
     featured["purchase_is_weekend"] = (purchase.dt.dayofweek >= 5).astype(int)
     featured["purchase_month"] = purchase.dt.month
     featured["purchase_year"] = purchase.dt.year
+
+    featured["purchase_hour_sin"] = np.sin(
+        2 * np.pi * featured["purchase_hour"] / 24
+    )
+    featured["purchase_hour_cos"] = np.cos(
+        2 * np.pi * featured["purchase_hour"] / 24
+    )
+    featured["purchase_day_sin"] = np.sin(
+        2 * np.pi * featured["purchase_day_of_week"] / 7
+    )
+    featured["purchase_day_cos"] = np.cos(
+        2 * np.pi * featured["purchase_day_of_week"] / 7
+    )
+    featured["purchase_month_sin"] = np.sin(
+        2 * np.pi * (featured["purchase_month"] - 1) / 12
+    )
+    featured["purchase_month_cos"] = np.cos(
+        2 * np.pi * (featured["purchase_month"] - 1) / 12
+    )
     return featured
 
 
