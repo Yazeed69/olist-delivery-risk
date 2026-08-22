@@ -1,0 +1,172 @@
+{
+  "population": {
+    "raw_orders": 99441,
+    "final_orders": 93306,
+    "dissatisfied_orders": 11422,
+    "dissatisfaction_rate": 0.12241442136625726,
+    "late_deliveries": 6290,
+    "late_delivery_rate": 0.0674125994041112
+  },
+  "dissatisfaction_by_deadline_outcome": [
+    {
+      "deadline_outcome": "both_deadlines_met",
+      "orders": 80328,
+      "dissatisfied": 6616,
+      "rate": 0.08236231451050692,
+      "ci_low": 0.08048108467358571,
+      "ci_high": 0.08428348711337606,
+      "vs_baseline": 1.0
+    },
+    {
+      "deadline_outcome": "late_handoff_recovered",
+      "orders": 6688,
+      "dissatisfied": 885,
+      "rate": 0.13232655502392343,
+      "ci_low": 0.12441635410437785,
+      "ci_high": 0.14065888262026793,
+      "vs_baseline": 1.6066395876604778
+    },
+    {
+      "deadline_outcome": "on_time_handoff_late_delivery",
+      "orders": 4551,
+      "dissatisfied": 2824,
+      "rate": 0.6205229619863766,
+      "ci_low": 0.6063286080204492,
+      "ci_high": 0.634514022819226,
+      "vs_baseline": 7.534064161191303
+    },
+    {
+      "deadline_outcome": "both_deadlines_missed",
+      "orders": 1739,
+      "dissatisfied": 1097,
+      "rate": 0.6308223116733755,
+      "ci_low": 0.6078757532062503,
+      "ci_high": 0.6531921699242215,
+      "vs_baseline": 7.659113460111685
+    }
+  ],
+  "chi_square_association": {
+    "chi_square": 15900.430924673818,
+    "p_value": 0.0,
+    "degrees_of_freedom": 3,
+    "cramers_v": 0.4128094792769259,
+    "n_observations": 93306
+  },
+  "adjusted_dissatisfaction_model": {
+    "converged": true,
+    "n_observations": 93306,
+    "pseudo_r_squared": 0.1633238228708107,
+    "log_likelihood": -29018.102910783735,
+    "deadline_outcome_estimates": [
+      {
+        "term": "late_handoff_recovered",
+        "coefficient": 0.44156651781342593,
+        "odds_ratio": 1.5551414681781022,
+        "ci_low": 1.4398627676203406,
+        "ci_high": 1.6796496446978326,
+        "p_value": 2.6853512834508813e-29
+      },
+      {
+        "term": "on_time_handoff_late_delivery",
+        "coefficient": 2.912180909100018,
+        "odds_ratio": 18.39687676362624,
+        "ci_low": 17.19384497591916,
+        "ci_high": 19.684083178024476,
+        "p_value": 0.0
+      },
+      {
+        "term": "both_deadlines_missed",
+        "coefficient": 2.9866308059444573,
+        "odds_ratio": 19.818796507524816,
+        "ci_low": 17.87740895772901,
+        "ci_high": 21.971007987534108,
+        "p_value": 0.0
+      }
+    ]
+  },
+  "seller_count_scope_check": [
+    {
+      "num_unique_sellers": 1,
+      "orders": 93306,
+      "dissatisfied": 11422,
+      "late_deliveries": 6290,
+      "dissatisfaction_rate": 0.12241442136625726,
+      "late_delivery_rate": 0.0674125994041112
+    },
+    {
+      "num_unique_sellers": 2,
+      "orders": 1160,
+      "dissatisfied": 541,
+      "late_deliveries": 12,
+      "dissatisfaction_rate": 0.4663793103448276,
+      "late_delivery_rate": 0.010344827586206896
+    },
+    {
+      "num_unique_sellers": 3,
+      "orders": 52,
+      "dissatisfied": 32,
+      "late_deliveries": 0,
+      "dissatisfaction_rate": 0.6153846153846154,
+      "late_delivery_rate": 0.0
+    },
+    {
+      "num_unique_sellers": 4,
+      "orders": 2,
+      "dissatisfied": 2,
+      "late_deliveries": 0,
+      "dissatisfaction_rate": 1.0,
+      "late_delivery_rate": 0.0
+    },
+    {
+      "num_unique_sellers": 5,
+      "orders": 1,
+      "dissatisfied": 1,
+      "late_deliveries": 0,
+      "dissatisfaction_rate": 1.0,
+      "late_delivery_rate": 0.0
+    }
+  ],
+  "late_delivery_modeling": {
+    "split": {
+      "strategy": "chronological_holdout",
+      "cutoff": "2018-05-26T16:05:31",
+      "train_orders": 74644,
+      "test_orders": 18662,
+      "train_start": "2016-09-15T12:16:38",
+      "train_end": "2018-05-26T16:01:31",
+      "test_start": "2018-05-26T16:05:31",
+      "test_end": "2018-08-29T15:00:37",
+      "train_late_delivery_rate": 0.07547827018916457,
+      "test_late_delivery_rate": 0.035151645054120675,
+      "selected_model": "logistic_regression"
+    },
+    "candidate_metrics": [
+      {
+        "model": "logistic_regression",
+        "train_roc_auc": 0.756495787808273,
+        "roc_auc": 0.6903846245018599,
+        "pr_auc": 0.07275496415246922,
+        "base_rate": 0.035151645054120675,
+        "top_fraction": 0.1,
+        "flagged_orders": 1867,
+        "captured_late_deliveries": 142,
+        "capture_rate": 0.21646341463414634,
+        "precision": 0.0760578468130691,
+        "lift": 2.1637066116242307
+      },
+      {
+        "model": "gradient_boosting",
+        "train_roc_auc": 0.8397312847962797,
+        "roc_auc": 0.5943921470620904,
+        "pr_auc": 0.05222218590920101,
+        "base_rate": 0.035151645054120675,
+        "top_fraction": 0.1,
+        "flagged_orders": 1867,
+        "captured_late_deliveries": 134,
+        "capture_rate": 0.20426829268292682,
+        "precision": 0.07177289769683985,
+        "lift": 2.0418076475890627
+      }
+    ]
+  }
+}
