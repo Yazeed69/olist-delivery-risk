@@ -5,12 +5,16 @@ are evaluated on later orders. All imputation, scaling, and categorical encoding
 are fitted inside scikit-learn pipelines using training data only.
 """
 
-from dataclasses import dataclass
+import json
+from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any
 
+import joblib
 import numpy as np
 import pandas as pd
 from sklearn.compose import ColumnTransformer
+from sklearn.dummy import DummyClassifier
 from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.impute import SimpleImputer
 from sklearn.inspection import permutation_importance
@@ -69,6 +73,7 @@ DEFAULT_TEST_FRACTION = 0.20
 DEFAULT_VALIDATION_FRACTION = 0.20
 DEFAULT_RISK_BANDS = 10
 DEFAULT_BOOTSTRAP_REPEATS = 500
+DEFAULT_BACKTEST_MONTHS = 6
 RANDOM_STATE = 42
 
 
@@ -99,7 +104,41 @@ class ModelingResult:
     risk_bands: pd.DataFrame
     permutation_importance: pd.DataFrame
     logistic_coefficients: pd.DataFrame
+    rolling_backtests: pd.DataFrame
+    intervention_value: pd.DataFrame
+    intervention_assumptions: dict[str, float]
+    deployment_model: Pipeline
     split_metadata: dict[str, Any]
+
+    def save_deployment_bundle(
+        self,
+        model_path: Path,
+        metadata_path: Path,
+    ) -> None:
+        """Persist the all-data deployment model and its scoring contract."""
+        model_path.parent.mkdir(parents=True, exist_ok=True)
+        joblib.dump(self.deployment_model, model_path)
+        metadata = {
+            "model": self.split_metadata["selected_model"],
+            "target": TARGET_COLUMN,
+            "trained_through": self.split_metadata["all_data_end"],
+            "features": MODEL_FEATURES,
+            "numeric_features": NUMERIC_FEATURES,
+            "categorical_features": CATEGORICAL_FEATURES,
+            "risk_score_definition": "predicted probability of late delivery",
+        }
+        with metadata_path.open("w", encoding="utf-8") as file:
+            json.dump(metadata, file, indent=2)
+            file.write("\n")
+
+
+@dataclass(frozen=True)
+class InterventionAssumptions:
+    """Transparent scenario inputs for a fixed-capacity intervention."""
+
+    intervention_effectiveness: float = 0.25
+    late_delivery_cost: float = 30.0
+    intervention_cost: float = 1.0
 
 
 def validate_modeling_input(orders: pd.DataFrame) -> None:
@@ -193,8 +232,16 @@ def temporal_train_validation_test_split(
     return selection, holdout
 
 
-def build_preprocessor(scale_numeric: bool) -> ColumnTransformer:
+def build_preprocessor(
+    scale_numeric: bool,
+    numeric_features: list[str] | None = None,
+    categorical_features: list[str] | None = None,
+) -> ColumnTransformer:
     """Build preprocessing that is learned exclusively from training data."""
+    if numeric_features is None:
+        numeric_features = NUMERIC_FEATURES
+    if categorical_features is None:
+        categorical_features = CATEGORICAL_FEATURES
     numeric_steps: list[tuple[str, Any]] = [
         ("imputer", SimpleImputer(strategy="median")),
     ]
@@ -202,33 +249,66 @@ def build_preprocessor(scale_numeric: bool) -> ColumnTransformer:
         numeric_steps.append(("scaler", StandardScaler()))
 
     numeric_pipeline = Pipeline(numeric_steps)
-    categorical_pipeline = Pipeline(
-        [
-            ("imputer", SimpleImputer(strategy="most_frequent")),
-            (
-                "encoder",
-                OneHotEncoder(
-                    handle_unknown="ignore",
-                    drop="first",
-                    sparse_output=False,
+    transformers: list[tuple[str, Any, list[str]]] = []
+    if numeric_features:
+        transformers.append(("numeric", numeric_pipeline, numeric_features))
+    if categorical_features:
+        categorical_pipeline = Pipeline(
+            [
+                ("imputer", SimpleImputer(strategy="most_frequent")),
+                (
+                    "encoder",
+                    OneHotEncoder(
+                        handle_unknown="ignore",
+                        drop="first",
+                        sparse_output=False,
+                    ),
                 ),
-            ),
-        ]
-    )
+            ]
+        )
+        transformers.append(
+            ("categorical", categorical_pipeline, categorical_features)
+        )
 
     return ColumnTransformer(
-        [
-            ("numeric", numeric_pipeline, NUMERIC_FEATURES),
-            ("categorical", categorical_pipeline, CATEGORICAL_FEATURES),
-        ],
+        transformers,
         remainder="drop",
         verbose_feature_names_out=True,
     )
 
 
 def build_candidate_models() -> dict[str, Pipeline]:
-    """Construct the two model candidates with isolated preprocessing."""
+    """Construct explicit baselines and model candidates."""
     return {
+        "prevalence_baseline": Pipeline(
+            [
+                (
+                    "preprocessor",
+                    build_preprocessor(
+                        scale_numeric=False,
+                        numeric_features=["promised_delivery_window_days"],
+                        categorical_features=[],
+                    ),
+                ),
+                ("classifier", DummyClassifier(strategy="prior")),
+            ]
+        ),
+        "promise_window_only": Pipeline(
+            [
+                (
+                    "preprocessor",
+                    build_preprocessor(
+                        scale_numeric=True,
+                        numeric_features=["promised_delivery_window_days"],
+                        categorical_features=[],
+                    ),
+                ),
+                (
+                    "classifier",
+                    LogisticRegression(max_iter=3_000, random_state=RANDOM_STATE),
+                ),
+            ]
+        ),
         "logistic_regression": Pipeline(
             [
                 ("preprocessor", build_preprocessor(scale_numeric=True)),
@@ -272,14 +352,17 @@ def top_fraction_metrics(
         raise ValueError("target and probabilities must have the same length")
 
     flagged_count = max(1, int(np.ceil(len(target_array) * fraction)))
-    ranked = np.argsort(-probability_array, kind="stable")
-    flagged_index = ranked[:flagged_count]
-    flagged_target = target_array[flagged_index]
-
     positives = int(target_array.sum())
-    captured = int(flagged_target.sum())
     base_rate = float(target_array.mean())
-    precision = float(flagged_target.mean())
+    cutoff = np.sort(probability_array)[-flagged_count]
+    definitely_flagged = probability_array > cutoff
+    tied_at_cutoff = probability_array == cutoff
+    remaining_capacity = flagged_count - int(definitely_flagged.sum())
+    tie_share = remaining_capacity / int(tied_at_cutoff.sum())
+    captured = float(target_array[definitely_flagged].sum()) + (
+        float(target_array[tied_at_cutoff].sum()) * tie_share
+    )
+    precision = captured / flagged_count
 
     return {
         "flagged_orders": flagged_count,
@@ -612,6 +695,112 @@ def logistic_coefficient_table(model: Pipeline) -> pd.DataFrame:
     )
 
 
+def rolling_monthly_backtest(
+    orders: pd.DataFrame,
+    model_names: list[str],
+    max_months: int = DEFAULT_BACKTEST_MONTHS,
+) -> pd.DataFrame:
+    """Evaluate expanding-window models on successive calendar months."""
+    validate_modeling_input(orders)
+    if max_months < 1:
+        raise ValueError("max_months must be at least 1")
+
+    ordered = orders.sort_values([TIME_COLUMN, ORDER_ID_COLUMN]).copy()
+    ordered["evaluation_month"] = ordered[TIME_COLUMN].dt.to_period("M")
+    months = ordered["evaluation_month"].drop_duplicates().sort_values()
+    evaluation_months = months.iloc[-max_months:]
+    available_models = build_candidate_models()
+    unknown = sorted(set(model_names) - set(available_models))
+    if unknown:
+        raise KeyError(f"Unknown backtest models: {unknown}")
+
+    rows: list[dict[str, Any]] = []
+    for month in evaluation_months:
+        train = ordered.loc[ordered["evaluation_month"] < month]
+        test = ordered.loc[ordered["evaluation_month"] == month]
+        if (
+            train.empty
+            or test.empty
+            or train[TARGET_COLUMN].nunique() != 2
+            or test[TARGET_COLUMN].nunique() != 2
+        ):
+            continue
+
+        for model_name in dict.fromkeys(model_names):
+            model = build_candidate_models()[model_name]
+            model.fit(train[MODEL_FEATURES], train[TARGET_COLUMN].astype(int))
+            probabilities = model.predict_proba(test[MODEL_FEATURES])[:, 1]
+            metrics = evaluate_probabilities(
+                test[TARGET_COLUMN].astype(int),
+                probabilities,
+            )
+            rows.append(
+                {
+                    "evaluation_month": str(month),
+                    "model": model_name,
+                    "train_orders": int(len(train)),
+                    "test_orders": int(len(test)),
+                    "train_end": train[TIME_COLUMN].max().isoformat(),
+                    **metrics,
+                }
+            )
+
+    return pd.DataFrame(rows)
+
+
+def intervention_value_table(
+    scored_orders: pd.DataFrame,
+    assumptions: InterventionAssumptions = InterventionAssumptions(),
+    capacity_fractions: tuple[float, ...] = (0.01, 0.05, 0.10, 0.20),
+) -> pd.DataFrame:
+    """Translate ranked risk into a transparent intervention scenario.
+
+    Monetary values are deliberately currency-neutral. Recruiters and operators
+    can replace the three assumptions with locally appropriate estimates.
+    """
+    if not 0 <= assumptions.intervention_effectiveness <= 1:
+        raise ValueError("intervention_effectiveness must be between 0 and 1")
+    if assumptions.late_delivery_cost <= 0 or assumptions.intervention_cost < 0:
+        raise ValueError("cost assumptions must be nonnegative and late cost positive")
+    require_non_empty(scored_orders, "scored_orders")
+    require_columns(
+        scored_orders,
+        {TARGET_COLUMN, "risk_score"},
+        "scored_orders",
+    )
+
+    rows: list[dict[str, float | int]] = []
+    for fraction in capacity_fractions:
+        metrics = top_fraction_metrics(
+            scored_orders[TARGET_COLUMN],
+            scored_orders["risk_score"].to_numpy(),
+            fraction=fraction,
+        )
+        expected_prevented = (
+            metrics["captured_late_deliveries"]
+            * assumptions.intervention_effectiveness
+        )
+        avoided_cost = expected_prevented * assumptions.late_delivery_cost
+        program_cost = metrics["flagged_orders"] * assumptions.intervention_cost
+        break_even_cost = (
+            metrics["precision"]
+            * assumptions.intervention_effectiveness
+            * assumptions.late_delivery_cost
+        )
+        rows.append(
+            {
+                "capacity_fraction": fraction,
+                **metrics,
+                "expected_prevented_late_deliveries": expected_prevented,
+                "avoided_late_delivery_cost": avoided_cost,
+                "intervention_program_cost": program_cost,
+                "net_value": avoided_cost - program_cost,
+                "break_even_cost_per_intervention": break_even_cost,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
 def run_modeling(
     orders: pd.DataFrame,
     test_fraction: float = DEFAULT_TEST_FRACTION,
@@ -654,6 +843,18 @@ def run_modeling(
 
     importance = permutation_importance_table(best_model, holdout_split)
     coefficients = logistic_coefficient_table(models["logistic_regression"])
+    rolling_backtests = rolling_monthly_backtest(
+        orders,
+        ["prevalence_baseline", "promise_window_only", best_model_name],
+    )
+    assumptions = InterventionAssumptions()
+    intervention_value = intervention_value_table(risk_scores, assumptions)
+
+    deployment_model = build_candidate_models()[best_model_name]
+    deployment_model.fit(
+        orders[MODEL_FEATURES],
+        orders[TARGET_COLUMN].astype(int),
+    )
 
     split_metadata = {
         "strategy": "chronological_train_validation_test",
@@ -677,6 +878,7 @@ def run_modeling(
         "development_late_delivery_rate": float(holdout_split.y_train.mean()),
         "test_late_delivery_rate": float(holdout_split.y_test.mean()),
         "selected_model": best_model_name,
+        "all_data_end": orders[TIME_COLUMN].max().isoformat(),
     }
 
     return ModelingResult(
@@ -688,5 +890,9 @@ def run_modeling(
         risk_bands=risk_bands,
         permutation_importance=importance,
         logistic_coefficients=coefficients,
+        rolling_backtests=rolling_backtests,
+        intervention_value=intervention_value,
+        intervention_assumptions=asdict(assumptions),
+        deployment_model=deployment_model,
         split_metadata=split_metadata,
     )

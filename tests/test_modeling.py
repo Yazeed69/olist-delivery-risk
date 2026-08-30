@@ -7,7 +7,9 @@ from olist_delivery.modeling import (
     NUMERIC_FEATURES,
     POST_CHECKOUT_COLUMNS,
     bootstrap_metric_intervals,
+    intervention_value_table,
     probability_calibration_table,
+    rolling_monthly_backtest,
     select_best_model,
     temporal_train_validation_test_split,
     temporal_train_test_split,
@@ -78,6 +80,17 @@ def test_top_fraction_metrics_use_an_exact_ranked_capacity() -> None:
     assert metrics["precision"] == 1.0
 
 
+def test_top_fraction_metrics_treat_constant_scores_as_random_selection() -> None:
+    target = pd.Series([1, 0] * 50)
+    probabilities = np.full(len(target), 0.5)
+
+    metrics = top_fraction_metrics(target, probabilities, fraction=0.10)
+
+    assert metrics["capture_rate"] == 0.10
+    assert metrics["precision"] == 0.50
+    assert metrics["lift"] == 1.0
+
+
 def test_model_features_exclude_every_known_post_checkout_field() -> None:
     assert set(MODEL_FEATURES).isdisjoint(POST_CHECKOUT_COLUMNS)
 
@@ -117,3 +130,42 @@ def test_calibration_and_bootstrap_intervals_are_reproducible() -> None:
     }
     assert (intervals["ci_low"] <= intervals["estimate"]).all()
     assert (intervals["estimate"] <= intervals["ci_high"]).all()
+
+
+def test_rolling_backtest_compares_explicit_baselines() -> None:
+    rows = 240
+    orders = _model_orders().iloc[np.arange(rows) % 20].copy().reset_index(drop=True)
+    orders["order_id"] = [f"rolling_{index}" for index in range(rows)]
+    orders["order_purchase_timestamp"] = pd.date_range(
+        "2017-01-01", periods=rows, freq="2D"
+    )
+    orders["late_delivery"] = [index % 3 == 0 for index in range(rows)]
+
+    backtest = rolling_monthly_backtest(
+        orders,
+        ["prevalence_baseline", "promise_window_only"],
+        max_months=3,
+    )
+
+    assert set(backtest["model"]) == {
+        "prevalence_baseline",
+        "promise_window_only",
+    }
+    assert backtest["evaluation_month"].nunique() == 3
+    assert (backtest["test_orders"] > 0).all()
+
+
+def test_intervention_value_reports_break_even_economics() -> None:
+    scored = pd.DataFrame(
+        {
+            "late_delivery": [1, 0, 1, 0, 0, 0, 1, 0, 0, 0],
+            "risk_score": [0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 0.0],
+        }
+    )
+
+    value = intervention_value_table(scored, capacity_fractions=(0.20,))
+
+    assert value.loc[0, "flagged_orders"] == 2
+    assert value.loc[0, "captured_late_deliveries"] == 1
+    assert value.loc[0, "expected_prevented_late_deliveries"] == 0.25
+    assert value.loc[0, "break_even_cost_per_intervention"] == 3.75

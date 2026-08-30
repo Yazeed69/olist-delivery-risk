@@ -110,6 +110,13 @@ CLEAN_ORDER_REQUIRED_COLUMNS = {
     "same_state",
 }
 
+DELIVERY_ORDER_REQUIRED_COLUMNS = CLEAN_ORDER_REQUIRED_COLUMNS - {
+    "review_id",
+    "review_score",
+    "review_creation_date",
+    "review_answer_timestamp",
+}
+
 ORDER_DATE_COLUMNS = {
     "order_purchase_timestamp",
     "order_approved_at",
@@ -338,5 +345,63 @@ def validate_clean_orders(
             max_shipping_limit_days,
             inclusive="both",
         ),
+        f"{name} has an implausible shipping deadline",
+    )
+
+
+def validate_delivery_orders(
+    orders: pd.DataFrame,
+    max_shipping_limit_days: int = 60,
+) -> None:
+    """Validate the review-independent cohort used for delivery modelling."""
+    name = "delivery_orders"
+    require_non_empty(orders, name)
+    require_columns(orders, DELIVERY_ORDER_REQUIRED_COLUMNS, name)
+    require_unique_key(orders, "order_id", name)
+
+    required_non_missing = DELIVERY_ORDER_REQUIRED_COLUMNS - {"distance_km"}
+    require_no_missing(orders, required_non_missing, name)
+    require_datetime_columns(
+        orders,
+        ORDER_DATE_COLUMNS
+        - {"review_creation_date", "review_answer_timestamp"},
+        name,
+    )
+    require_values_between(orders, "same_state", 0, 1, name)
+
+    for column in ("item_count", "total_price", "total_weight_g", "total_volume_cm3"):
+        require_condition(orders[column] > 0, f"{name}.{column} must be positive")
+    require_condition(
+        orders["total_freight_value"] >= 0,
+        f"{name}.total_freight_value must be nonnegative",
+    )
+
+    known_distance = orders["distance_km"].dropna()
+    if (known_distance < 0).any():
+        invalid = int((known_distance < 0).sum())
+        raise DataValidationError(
+            f"{name}.distance_km contains {invalid:,} negative values"
+        )
+
+    require_condition(
+        orders["order_approved_at"] >= orders["order_purchase_timestamp"],
+        f"{name} has approval before purchase",
+    )
+    require_condition(
+        orders["order_delivered_carrier_date"]
+        >= orders["order_purchase_timestamp"],
+        f"{name} has carrier pickup before purchase",
+    )
+    require_condition(
+        orders["order_delivered_customer_date"]
+        >= orders["order_delivered_carrier_date"],
+        f"{name} has customer delivery before carrier pickup",
+    )
+
+    shipping_gap_days = (
+        orders["shipping_limit_date"] - orders["order_purchase_timestamp"]
+    ).dt.total_seconds() / 86_400
+    require_condition(
+        shipping_gap_days.between(0, max_shipping_limit_days, inclusive="both"),
         f"{name} has an implausible shipping deadline",
     )

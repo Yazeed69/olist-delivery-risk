@@ -127,11 +127,21 @@ def add_late_delivery_target(orders: pd.DataFrame) -> pd.DataFrame:
     return featured
 
 
-def build_features(orders: pd.DataFrame) -> pd.DataFrame:
-    """Build all shared analytical and modelling features."""
-    featured = add_dissatisfaction_target(orders)
-    featured = add_deadline_outcome(featured)
+def build_delivery_features(orders: pd.DataFrame) -> pd.DataFrame:
+    """Build features and the target needed for late-delivery modelling.
+
+    This deliberately does not require review fields. Delivery-risk modelling
+    should represent every eligible delivered order rather than only customers
+    who submitted an unambiguous review.
+    """
+    featured = add_deadline_outcome(orders)
     featured = add_order_controls(featured)
     featured = add_purchase_timing(featured)
     featured = add_late_delivery_target(featured)
     return featured
+
+
+def build_features(orders: pd.DataFrame) -> pd.DataFrame:
+    """Build the review-based analytical feature table."""
+    featured = add_dissatisfaction_target(orders)
+    return build_delivery_features(featured)

@@ -1,0 +1,42 @@
+{
+  "model": "logistic_regression",
+  "target": "late_delivery",
+  "trained_through": "2018-08-29T15:00:37",
+  "features": [
+    "item_count",
+    "log_order_price",
+    "total_freight_value",
+    "freight_ratio",
+    "total_weight_g",
+    "promised_delivery_window_days",
+    "distance_km",
+    "same_state",
+    "purchase_hour_sin",
+    "purchase_hour_cos",
+    "purchase_day_sin",
+    "purchase_day_cos",
+    "purchase_month_sin",
+    "purchase_month_cos",
+    "customer_state"
+  ],
+  "numeric_features": [
+    "item_count",
+    "log_order_price",
+    "total_freight_value",
+    "freight_ratio",
+    "total_weight_g",
+    "promised_delivery_window_days",
+    "distance_km",
+    "same_state",
+    "purchase_hour_sin",
+    "purchase_hour_cos",
+    "purchase_day_sin",
+    "purchase_day_cos",
+    "purchase_month_sin",
+    "purchase_month_cos"
+  ],
+  "categorical_features": [
+    "customer_state"
+  ],
+  "risk_score_definition": "predicted probability of late delivery"
+}

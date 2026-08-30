@@ -43,25 +43,29 @@ from .cleaning import (
     parse_order_dates,
 )
 from .data import OUTPUTS_DIR, PROCESSED_DIR, RAW_FILES, load_raw_table
-from .features import OUTCOME_ORDER, build_features
+from .features import OUTCOME_ORDER, build_delivery_features, build_features
 from .modeling import ModelingResult, run_modeling
 from .validation import (
     validate_clean_orders,
     validate_clean_products,
     validate_clean_reviews,
+    validate_delivery_orders,
     validate_raw_tables,
 )
 from .visualization import (
     plot_dissatisfaction_rates,
     plot_calibration,
     plot_delivery_drift,
+    plot_intervention_value,
     plot_review_score_distribution,
     plot_risk_bands,
+    plot_rolling_backtest,
     save_figure,
 )
 
 
 FEATURES_FILENAME = "olist_delivery_features.csv"
+MODELING_FEATURES_FILENAME = "olist_delivery_modeling_features.csv"
 METRICS_FILENAME = "metrics.json"
 POPULATION_FLOW_FILENAME = "population_flow.csv"
 DELIVERY_DRIFT_FILENAME = "delivery_drift.csv"
@@ -71,6 +75,10 @@ MODEL_IMPORTANCE_FILENAME = "model_feature_importance.csv"
 LOGISTIC_COEFFICIENTS_FILENAME = "logistic_coefficients.csv"
 VALIDATION_METRICS_FILENAME = "model_validation_metrics.csv"
 METRIC_INTERVALS_FILENAME = "model_holdout_intervals.csv"
+ROLLING_BACKTEST_FILENAME = "model_rolling_backtest.csv"
+INTERVENTION_VALUE_FILENAME = "model_intervention_value.csv"
+MODEL_FILENAME = "late_delivery_model.joblib"
+MODEL_METADATA_FILENAME = "late_delivery_model_metadata.json"
 
 
 @dataclass(frozen=True)
@@ -78,6 +86,7 @@ class PipelineResult:
     """In-memory artifacts produced by a successful pipeline run."""
 
     features: pd.DataFrame
+    modeling_features: pd.DataFrame
     population_flow: pd.DataFrame
     dissatisfaction_rates: pd.DataFrame
     review_distribution: pd.DataFrame
@@ -94,15 +103,21 @@ def load_raw_tables() -> dict[str, pd.DataFrame]:
     return {name: load_raw_table(name) for name in RAW_FILES}
 
 
-def _population_flow(stages: list[tuple[str, int]]) -> pd.DataFrame:
+def _population_flow(
+    stages: list[tuple[str, int]],
+    cohort: str,
+    raw_orders: int | None = None,
+) -> pd.DataFrame:
     """Build an auditable order-count table for sequential cohort filters."""
-    raw_orders = stages[0][1]
+    if raw_orders is None:
+        raw_orders = stages[0][1]
     rows: list[dict[str, Any]] = []
 
     for position, (stage, orders) in enumerate(stages):
         previous_orders = stages[position - 1][1] if position else orders
         rows.append(
             {
+                "cohort": cohort,
                 "stage": stage,
                 "orders": orders,
                 "orders_removed": previous_orders - orders,
@@ -116,8 +131,8 @@ def _population_flow(stages: list[tuple[str, int]]) -> pd.DataFrame:
 
 def build_analysis_population(
     raw_tables: dict[str, pd.DataFrame],
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Create the validated single-seller cohort and its population audit.
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Create separate review-analysis and delivery-model cohorts.
 
     The returned seller summary is calculated from the comparable population
     before the single-seller restriction. It documents why that restriction is
@@ -131,16 +146,16 @@ def build_analysis_population(
     validate_clean_reviews(reviews)
 
     raw_orders = raw_tables["orders"]
-    stages: list[tuple[str, int]] = [("raw_orders", len(raw_orders))]
+    modeling_stages: list[tuple[str, int]] = [("raw_orders", len(raw_orders))]
 
     orders = keep_delivered_orders(raw_orders)
-    stages.append(("delivered_orders", len(orders)))
+    modeling_stages.append(("delivered_orders", len(orders)))
 
     orders = parse_order_dates(orders)
-    stages.append(("complete_order_timestamps", len(orders)))
+    modeling_stages.append(("complete_order_timestamps", len(orders)))
 
     orders = keep_coherent_order_timelines(orders)
-    stages.append(("coherent_delivery_timelines", len(orders)))
+    modeling_stages.append(("coherent_delivery_timelines", len(orders)))
 
     orders = attach_customer_details(orders, raw_tables["customers"])
     order_items = clean_order_items(
@@ -149,7 +164,7 @@ def build_analysis_population(
         orders["order_id"],
     )
     orders = attach_order_items(orders, order_items)
-    stages.append(("orders_with_usable_items", len(orders)))
+    modeling_stages.append(("orders_with_usable_items", len(orders)))
 
     # Preserve a pre-restriction comparison before dropping multi-seller orders.
     seller_comparison = attach_reviews(orders, reviews)
@@ -159,28 +174,47 @@ def build_analysis_population(
     seller_summary = seller_count_summary(seller_comparison)
 
     orders = keep_single_seller_orders(orders)
-    stages.append(("single_seller_orders", len(orders)))
+    modeling_stages.append(("single_seller_orders", len(orders)))
 
     orders = attach_geography(
         orders,
         raw_tables["sellers"],
         raw_tables["geolocation"],
     )
-    orders = attach_reviews(orders, reviews)
-    stages.append(("orders_with_usable_reviews", len(orders)))
-
-    orders = keep_reviews_after_purchase(orders)
-    stages.append(("reviews_after_purchase", len(orders)))
-
     orders = keep_plausible_shipping_deadlines(orders)
-    stages.append(("final_analysis_population", len(orders)))
-    validate_clean_orders(orders)
+    modeling_stages.append(("final_modeling_population", len(orders)))
+    validate_delivery_orders(orders)
 
-    features = build_features(orders).sort_values(
+    modeling_features = build_delivery_features(orders).sort_values(
         ["order_purchase_timestamp", "order_id"]
     ).reset_index(drop=True)
 
-    return features, _population_flow(stages), seller_summary
+    analysis_stages: list[tuple[str, int]] = [
+        ("eligible_modeling_orders", len(orders))
+    ]
+    analysis_orders = attach_reviews(orders, reviews)
+    analysis_stages.append(("orders_with_usable_reviews", len(analysis_orders)))
+
+    analysis_orders = keep_reviews_after_purchase(analysis_orders)
+    analysis_stages.append(("final_analysis_population", len(analysis_orders)))
+    validate_clean_orders(analysis_orders)
+
+    features = build_features(analysis_orders).sort_values(
+        ["order_purchase_timestamp", "order_id"]
+    ).reset_index(drop=True)
+
+    population_flow = pd.concat(
+        [
+            _population_flow(modeling_stages, "delivery_model"),
+            _population_flow(
+                analysis_stages,
+                "dissatisfaction_analysis",
+                raw_orders=len(raw_orders),
+            ),
+        ],
+        ignore_index=True,
+    )
+    return features, modeling_features, population_flow, seller_summary
 
 
 def run_analysis(features: pd.DataFrame) -> tuple[
@@ -204,7 +238,12 @@ def run_analysis(features: pd.DataFrame) -> tuple[
 def execute_pipeline() -> PipelineResult:
     """Execute all computational stages without writing project artifacts."""
     raw_tables = load_raw_tables()
-    features, population_flow, seller_summary = build_analysis_population(raw_tables)
+    (
+        features,
+        modeling_features,
+        population_flow,
+        seller_summary,
+    ) = build_analysis_population(raw_tables)
     (
         rates,
         distribution,
@@ -213,10 +252,11 @@ def execute_pipeline() -> PipelineResult:
         sensitivity,
         drift,
     ) = run_analysis(features)
-    modeling = run_modeling(features)
+    modeling = run_modeling(modeling_features)
 
     return PipelineResult(
         features=features,
+        modeling_features=modeling_features,
         population_flow=population_flow,
         dissatisfaction_rates=rates,
         review_distribution=distribution,
@@ -265,11 +305,14 @@ def build_metrics(result: PipelineResult) -> dict[str, Any]:
     return {
         "population": {
             "raw_orders": int(result.population_flow.iloc[0]["orders"]),
-            "final_orders": int(len(result.features)),
+            "analysis_orders": int(len(result.features)),
+            "modeling_orders": int(len(result.modeling_features)),
             "dissatisfied_orders": int(result.features["dissatisfied"].sum()),
             "dissatisfaction_rate": float(result.features["dissatisfied"].mean()),
-            "late_deliveries": int(result.features["late_delivery"].sum()),
-            "late_delivery_rate": float(result.features["late_delivery"].mean()),
+            "late_deliveries": int(result.modeling_features["late_delivery"].sum()),
+            "late_delivery_rate": float(
+                result.modeling_features["late_delivery"].mean()
+            ),
         },
         "dissatisfaction_by_deadline_outcome": rate_records,
         "chi_square_association": result.association_metrics,
@@ -300,6 +343,13 @@ def build_metrics(result: PipelineResult) -> dict[str, Any]:
             "risk_band_calibration": result.modeling.risk_bands.to_dict(
                 orient="records"
             ),
+            "rolling_backtests": result.modeling.rolling_backtests.to_dict(
+                orient="records"
+            ),
+            "intervention_assumptions": result.modeling.intervention_assumptions,
+            "intervention_value": result.modeling.intervention_value.to_dict(
+                orient="records"
+            ),
         },
     }
 
@@ -319,6 +369,10 @@ def write_outputs(
     figures_dir.mkdir(parents=True, exist_ok=True)
 
     result.features.to_csv(processed_dir / FEATURES_FILENAME, index=False)
+    result.modeling_features.to_csv(
+        processed_dir / MODELING_FEATURES_FILENAME,
+        index=False,
+    )
     result.population_flow.to_csv(
         outputs_dir / POPULATION_FLOW_FILENAME,
         index=False,
@@ -351,6 +405,18 @@ def write_outputs(
     result.modeling.metric_intervals.to_csv(
         outputs_dir / METRIC_INTERVALS_FILENAME,
         index=False,
+    )
+    result.modeling.rolling_backtests.to_csv(
+        outputs_dir / ROLLING_BACKTEST_FILENAME,
+        index=False,
+    )
+    result.modeling.intervention_value.to_csv(
+        outputs_dir / INTERVENTION_VALUE_FILENAME,
+        index=False,
+    )
+    result.modeling.save_deployment_bundle(
+        outputs_dir / MODEL_FILENAME,
+        outputs_dir / MODEL_METADATA_FILENAME,
     )
 
     metrics = build_metrics(result)
@@ -391,6 +457,14 @@ def write_outputs(
         ),
         figures_dir / "delivery_target_drift.png",
     )
+    save_figure(
+        plot_rolling_backtest(result.modeling.rolling_backtests),
+        figures_dir / "rolling_backtest_pr_auc.png",
+    )
+    save_figure(
+        plot_intervention_value(result.modeling.intervention_value),
+        figures_dir / "intervention_value_curve.png",
+    )
 
 
 def main() -> None:
@@ -406,7 +480,8 @@ def main() -> None:
     selected_metrics = result.modeling.holdout_metrics
 
     print(
-        f"Done: {len(result.features):,} analysis orders in "
+        f"Done: {len(result.features):,} analysis orders and "
+        f"{len(result.modeling_features):,} modeling orders in "
         f"{time.perf_counter() - started:.1f}s"
     )
     print(

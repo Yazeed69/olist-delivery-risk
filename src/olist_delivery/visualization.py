@@ -429,6 +429,106 @@ def plot_delivery_drift(
     return figure
 
 
+def plot_rolling_backtest(backtests: pd.DataFrame) -> Figure:
+    """Plot month-level PR-AUC for the selected model and its baselines."""
+    name = "rolling_backtests"
+    required = {"evaluation_month", "model", "pr_auc", "base_rate"}
+    require_non_empty(backtests, name)
+    require_columns(backtests, required, name)
+
+    table = backtests.copy()
+    table["month"] = pd.to_datetime(table["evaluation_month"] + "-01")
+    labels = {
+        "prevalence_baseline": "prevalence baseline",
+        "promise_window_only": "promise window only",
+        "logistic_regression": "full logistic model",
+        "gradient_boosting": "gradient boosting",
+    }
+    colours = {
+        "prevalence_baseline": TEXT_GREY,
+        "promise_window_only": REFERENCE_ORANGE,
+        "logistic_regression": PRIMARY_BLUE,
+        "gradient_boosting": "#6A4C93",
+    }
+
+    figure, axis = plt.subplots(figsize=(10.5, 5.4), layout="constrained")
+    for model, group in table.groupby("model", sort=False):
+        axis.plot(
+            group["month"],
+            group["pr_auc"],
+            marker="o",
+            linewidth=2,
+            label=labels.get(model, model),
+            color=colours.get(model),
+        )
+
+    axis.set_title(
+        "Late-delivery ranking performance varies materially by month",
+        loc="left",
+        pad=22,
+        fontsize=14,
+        weight="bold",
+    )
+    axis.set_ylabel("Monthly PR-AUC")
+    axis.set_xlabel("Evaluation month")
+    axis.tick_params(axis="x", labelrotation=45)
+    axis.legend(frameon=False, ncol=3)
+    _clean_axes(axis)
+    return figure
+
+
+def plot_intervention_value(intervention_value: pd.DataFrame) -> Figure:
+    """Plot scenario net value across intervention capacities."""
+    name = "intervention_value"
+    required = {"capacity_fraction", "net_value", "break_even_cost_per_intervention"}
+    require_non_empty(intervention_value, name)
+    require_columns(intervention_value, required, name)
+
+    table = intervention_value.sort_values("capacity_fraction").copy()
+    capacities = 100 * table["capacity_fraction"]
+    colours = np.where(table["net_value"] >= 0, PRIMARY_BLUE, REFERENCE_ORANGE)
+    figure, axis = plt.subplots(figsize=(9.2, 5.2), layout="constrained")
+    axis.bar(capacities.astype(str) + "%", table["net_value"], color=colours)
+    axis.axhline(0, color=TEXT_GREY, linewidth=1.2)
+
+    for index, value in enumerate(table["net_value"]):
+        if value >= 0:
+            label_y = value + 25
+            label_colour = "black"
+        else:
+            label_y = value + max(35, abs(value) * 0.05)
+            label_colour = "white"
+        axis.text(
+            index,
+            label_y,
+            f"{value:,.0f}",
+            ha="center",
+            va="bottom",
+            color=label_colour,
+        )
+
+    axis.set_title(
+        "Targeting value turns negative as intervention capacity widens",
+        loc="left",
+        pad=22,
+        fontsize=14,
+        weight="bold",
+    )
+    axis.text(
+        0,
+        1.01,
+        "Scenario: 25% effectiveness, 30 late-delivery cost units, 1 unit per intervention",
+        transform=axis.transAxes,
+        color=TEXT_GREY,
+        fontsize=9,
+    )
+    axis.set_xlabel("Share of held-out orders targeted")
+    axis.set_ylabel("Expected net value (currency-neutral units)")
+    axis.margins(y=0.1)
+    _clean_axes(axis)
+    return figure
+
+
 def save_figure(
     figure: Figure,
     path: Path,
